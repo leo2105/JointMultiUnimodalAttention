@@ -18,13 +18,14 @@ from sklearn.model_selection import KFold
 from cam import CAM
 from training import train
 from testing import test
+from validation import valid
 
 pca_size = 150
 nro_rep = 10
-epochs = 50
+epochs = 50 # 50
 SEED = 0
-dataset_target = 'CK+' #'JAFFE' 
-
+dataset_target = 'JAFFE' #'CK+' 
+#dataset_target = 'CK+'
 
 if (SEED == 0):
 	torch.backends.cudnn.benchmark = True
@@ -53,29 +54,52 @@ class CustomDataset(Dataset):
 
 def fit_evaluate_model_CV(X_train, y_train, X_test, y_test):
 
-    X_train = torch.tensor(np.array(X_train)[:,:nro_rep,:,:], dtype=torch.float32)
-    y_train = torch.tensor(np.array(y_train), dtype=torch.float32)
+    X_train_, X_valid_, y_train_, y_valid_ = train_test_split(X_train, y_train, test_size=0.2, stratify=y_train, random_state=42)
+
+    X_train_ = torch.tensor(np.array(X_train_)[:,:nro_rep,:,:], dtype=torch.float32)
+    y_train_ = torch.tensor(np.array(y_train_), dtype=torch.float32)
+    X_valid_ = torch.tensor(np.array(X_valid_)[:,:nro_rep,:,:], dtype=torch.float32)
+    y_valid_ = torch.tensor(np.array(y_valid_), dtype=torch.float32)
     X_test = torch.tensor(np.array(X_test)[:,:nro_rep,:,:], dtype=torch.float32)
     y_test = torch.tensor(np.array(y_test), dtype=torch.float32)
 
-    train_dataset = CustomDataset(X_train, y_train)
+    train_dataset = CustomDataset(X_train_, y_train_)
+    valid_dataset = CustomDataset(X_valid_, y_valid_)
     test_dataset = CustomDataset(X_test, y_test)
 
     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=4)
+    valid_loader = DataLoader(valid_dataset, batch_size=4, shuffle=True, num_workers=4)
     test_loader = DataLoader(test_dataset, batch_size=4, shuffle=True, num_workers=4)
 
     print("Number of Train samples:" + str(len(train_dataset)))
-    print("Number of Val samples:" + str(len(test_dataset)))
+    print("Number of Valid samples:" + str(len(valid_dataset)))
+    print("Number of Test samples:" + str(len(test_dataset)))
 
     cam = CAM(nro_rep).cuda()
-    optimizer = torch.optim.Adam(cam.parameters(), 0.001)
+    optimizer = torch.optim.Adam(cam.parameters(), lr=0.001)
 
+    early_stopping = {
+        'patience': 5,  
+        'best_loss': float('inf'), 
+        'counter': 0
+    }
     
     for epoch in range(epochs):
         Training_loss, Training_acc = train(train_loader, optimizer, epoch, cam)
-        Test_loss, Test_acc = test(test_loader, epoch, cam)
+        Validation_loss, Validation_acc = train(train_loader, optimizer, epoch, cam)
+        if Validation_loss < early_stopping['best_loss']:
+            early_stopping['best_loss'] = Validation_loss
+            early_stopping['counter'] = 0
+        else:
+            early_stopping['counter'] += 1
+
+        if early_stopping['counter'] >= early_stopping['patience']:
+            print(f'Early stopping after {epoch + 1} epochs.')
+            break
+
+        Testing_loss, Testing_acc = test(test_loader, epoch, cam)
         torch.save(cam.state_dict(), "model_cam.pth")
-    return Test_loss, Test_acc
+    return Testing_loss, Testing_acc
 
 if dataset_target == 'CK+':
     lista_repr_paths = glob.glob('../temp2/CK/10 REP/L/*')
@@ -128,7 +152,8 @@ for participant in os.listdir(os.path.join(labeled_path_2)):
 for i, subject in enumerate(subjects):
     print(f"\nSubject:{i}, Offset: {subject}")
     # Define models
-    X_train, y_train, X_test, y_test = None, None, None, None 
+    X_train, y_train, X_valdi, y_valid, X_test, y_test = None, None, None, None, None, None
+    
     if i == len(subjects) - 1:
         X_train = X[0:subject]
         y_train = y[0:subject]
@@ -141,7 +166,6 @@ for i, subject in enumerate(subjects):
         X_test = X[subject:subject + length]
         y_test = y[subject:subject + length]
 
-    
     # NN models
     test_loss, test_acc = fit_evaluate_model_CV(X_train, y_train, X_test, y_test)
     
