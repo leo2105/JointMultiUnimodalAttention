@@ -8,7 +8,7 @@ import torch.optim
 import numpy as np
 
 
-def test(test_loader, epoch, cam):
+def test(test_loader, cam):
     cam.eval()
     criterion = nn.CrossEntropyLoss().cuda()
     total_loss, total_correct, total_samples = 0, 0, 0

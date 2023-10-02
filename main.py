@@ -20,12 +20,13 @@ from training import train
 from testing import test
 from validation import valid
 
-pca_size = 150
+pca_size, epochs = 150, 50
 nro_rep = 10
-epochs = 50 # 50
-SEED = 0
-dataset_target = 'JAFFE' #'CK+' 
+kind_rep = 'A' # L, A, LA
+dataset_target = 'JAFFE' 
 #dataset_target = 'CK+'
+
+SEED = 0
 
 if (SEED == 0):
 	torch.backends.cudnn.benchmark = True
@@ -78,36 +79,23 @@ def fit_evaluate_model_CV(X_train, y_train, X_test, y_test):
     cam = CAM(nro_rep).cuda()
     optimizer = torch.optim.Adam(cam.parameters(), lr=0.001)
 
-    early_stopping = {
-        'patience': 5,  
-        'best_loss': float('inf'), 
-        'counter': 0
-    }
-    
+    best_cam, best_valid_acc = cam, 0
     for epoch in range(epochs):
         Training_loss, Training_acc = train(train_loader, optimizer, epoch, cam)
-        Validation_loss, Validation_acc = train(train_loader, optimizer, epoch, cam)
-        if Validation_loss < early_stopping['best_loss']:
-            early_stopping['best_loss'] = Validation_loss
-            early_stopping['counter'] = 0
-        else:
-            early_stopping['counter'] += 1
-
-        if early_stopping['counter'] >= early_stopping['patience']:
-            print(f'Early stopping after {epoch + 1} epochs.')
-            break
-
-        Testing_loss, Testing_acc = test(test_loader, epoch, cam)
-        torch.save(cam.state_dict(), "model_cam.pth")
-    return Testing_loss, Testing_acc
+        Validation_loss, Validation_acc = valid(valid_loader, cam)
+        if Validation_acc > best_valid_acc:
+            best_valid_acc = Validation_acc
+            best_cam = cam
+            Testing_loss_best, Testing_acc_best = test(test_loader, cam)
+    return Testing_loss_best, Testing_acc_best
 
 if dataset_target == 'CK+':
-    lista_repr_paths = glob.glob('../temp2/CK/10 REP/L/*')
+    lista_repr_paths = glob.glob(f'../temp2/CK/{nro_rep} REP/{kind_rep}/*')
     y = np.load('../y_ck.npy')
     y = y-1
 
 if dataset_target == 'JAFFE':
-    lista_repr_paths = glob.glob('../temp2/JAFFE/10 REP/L/*')
+    lista_repr_paths = glob.glob(f'../temp2/JAFFE/{nro_rep} REP/{kind_rep}/*')
     y = np.load('../y.npy')
 
 # Load representations
@@ -175,6 +163,6 @@ for i, subject in enumerate(subjects):
     
 
 print('------------------------------------------------------------------------')
-print('Average scores for all folds with CNN Attention:')
+print(f'Average scores for all folds with CNN Attention nro_rep: {nro_rep}, kind_rep: {kind_rep}, dataset_target: {dataset_target}')
 print(f'> Accuracy: {np.mean(acc_per_fold)} (+- {np.std(acc_per_fold)})')
 print(f'> Loss: {np.mean(loss_per_fold)}')
