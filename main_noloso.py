@@ -13,6 +13,7 @@ import torchvision.models as models
 from sklearn.model_selection import train_test_split
 import numpy as np, glob, random, pickle
 from sklearn.decomposition import PCA
+from sklearn.model_selection import StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import KFold
 from cam import CAM
@@ -21,8 +22,8 @@ from testing import test
 from validation import valid
 
 pca_size = int(os.getenv('PCA_SIZE', 150))
-epochs = int(os.getenv('NRO_REP', 10))
-nro_rep = int(os.getenv('EPOCHS', 50))
+epochs = int(os.getenv('EPOCHS', 50))
+nro_rep = int(os.getenv('NRO_REP', 10))
 kind_rep = os.getenv('KIND_REP', 'L')
 dataset_target = os.getenv('DATASET_TARGET', 'JAFFE')
 folder_path_rep = os.getenv('FOLDER_PATH_REP', 'temp2')
@@ -117,8 +118,8 @@ for i in range(len(lista_rep)-1):
     final_rep = np.hstack((final_rep, LX[i+1]))
 
 X = np.resize(final_rep, (final_rep.shape[0],final_rep.shape[1]//pca_size,pca_size, 1))
-y = [int(a) for a in y.squeeze()]
-y = torch.nn.functional.one_hot(torch.tensor(y))
+y = np.array([int(a) for a in y.squeeze()], dtype=np.uint8)
+#y = torch.nn.functional.one_hot(torch.tensor(y))
 
 
 acc_per_fold, loss_per_fold, acc_per_fold_no_attention, loss_per_fold_no_attention = [], [], [], []
@@ -138,23 +139,45 @@ for participant in os.listdir(os.path.join(labeled_path_2)):
         if sequence != ".DS_Store":
             subject_index += 1
 
-for i, subject in enumerate(subjects):
-    print(f"\nSubject:{i}, Offset: {subject}")
-    # Define models
-    X_train, y_train, X_valdi, y_valid, X_test, y_test = None, None, None, None, None, None
-    
-    if i == len(subjects) - 1:
-        X_train = X[0:subject]
-        y_train = y[0:subject]
-        X_test = X[subject:]
-        y_test = y[subject:]
-    else:
-        length = subjects[i + 1] - subjects[i]
-        X_train = np.vstack((X[0:subject], X[subject + length:]))
-        y_train = np.vstack((y[0:subject], y[subject + length:]))
-        X_test = X[subject:subject + length]
-        y_test = y[subject:subject + length]
+print(len(y), len(X))
 
+skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
+for fold, (train_index, test_index) in enumerate(skf.split(X, y)):
+    print(f"\nFold {fold + 1}")
+    
+    # Definir los conjuntos de entrenamiento y prueba
+    X_train, X_test = X[train_index], X[test_index]
+    y_train, y_test = y[train_index], y[test_index]
+    
+    # Aquí puedes definir y entrenar tus modelos
+    # Por ejemplo:
+    # model = SomeModel()
+    # model.fit(X_train, y_train)
+    # y_pred = model.predict(X_test)
+    
+    # Para este ejemplo, solo imprimimos las formas de los conjuntos
+    print(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
+    print(f"X_test shape: {X_test.shape}, y_test shape: {y_test.shape}")
+
+# for i, subject in enumerate(subjects):
+#     print(f"\nSubject:{i}, Offset: {subject}")
+#     # Define models
+#     X_train, y_train, X_test, y_test = None, None, None, None
+    
+#     if i == len(subjects) - 1:
+#         X_train = X[0:subject]
+#         y_train = y[0:subject]
+#         X_test = X[subject:]
+#         y_test = y[subject:]
+#     else:
+#         length = subjects[i + 1] - subjects[i]
+#         X_train = np.vstack((X[0:subject], X[subject + length:]))
+#         y_train = np.vstack((y[0:subject], y[subject + length:]))
+#         X_test = X[subject:subject + length]
+#         y_test = y[subject:subject + length]
+
+#     print(len(X_train), len(y_train), len(X_test), len(y_test))
+    
     # NN models
     test_loss, test_acc = fit_evaluate_model_CV(X_train, y_train, X_test, y_test)
     
